@@ -140,7 +140,6 @@ enum Dir {
 enum State {
     Success,
     Dead,
-    Repeated,
     Just(Player),
 }
 
@@ -186,38 +185,37 @@ enum Tile {
 }
 
 /// Move the player in the given direction and find out what happens
-fn apply(
-    d: Dir,
-    b: &Board,
-    p: Player,
-    mut visited: HashSet<Player>,
-    mut history: Vec<Dir>,
-) -> (State, HashSet<Player>, Vec<Dir>) {
-    println!();
-    println!("------------------------");
+fn apply(d: Dir, b: &Board, p: Player) -> State {
     println!("Heading {:?}", d);
 
     let new_p = p.hop(d);
 
     println!("We are now here: ({}, {})", new_p.x, new_p.y);
 
-    if visited.contains(&new_p) {
-        println!("We've been here before. Backtracking...");
-        return (State::Repeated, visited, history);
-    }
-
-    visited.insert(new_p);
-    history.push(d);
-
-    (State::from(d, p, new_p, b), visited, history)
+    State::from(d, p, new_p, b)
 }
 
 /// Figure out how to get the player to the exit
-fn solve(b1: &Board, p1: Player, visited: HashSet<Player>, history: Vec<Dir>) -> Option<Vec<Dir>> {
+fn solve(
+    b1: &Board,
+    p1: Player,
+    b2: &Board,
+    p2: Player,
+    visited: HashSet<(Player, Player)>,
+    history: Vec<Dir>,
+) -> Option<Vec<Dir>> {
     [Dir::Up, Dir::Down, Dir::Right, Dir::Left]
-        .iter()
+        .into_iter()
         .find_map(|dir| {
-            let (new_p, new_vis, new_hist) = apply(*dir, b1, p1, visited.clone(), history.clone());
+            println!();
+            println!("-----------Player A-------------");
+            let new_p1 = apply(dir, b1, p1);
+            println!();
+            println!("-----------Player B-------------");
+            let new_p2 = apply(dir, b2, p2);
+
+            let mut new_hist = history.clone();
+            new_hist.push(dir);
 
             print!("Our path so far: ");
             for entry in &new_hist {
@@ -225,20 +223,49 @@ fn solve(b1: &Board, p1: Player, visited: HashSet<Player>, history: Vec<Dir>) ->
             }
             println!();
 
-            match new_p {
-                State::Success => Some(new_hist),
-                State::Dead | State::Repeated => None,
-                State::Just(np) => solve(b1, np, new_vis, new_hist),
+            match (new_p1, new_p2) {
+                (State::Success, State::Success) => {
+                    println!("We've both made it!");
+                    Some(new_hist)
+                }
+                (State::Just(np1), State::Just(np2)) => {
+                    let vis_entry = (np1, np2);
+
+                    let mut new_vis = visited.clone();
+
+                    if new_vis.contains(&vis_entry) {
+                        println!("We've been here before. Backtracking...");
+                        None
+                    } else {
+                        new_vis.insert(vis_entry);
+
+                        solve(b1, np1, b2, np2, new_vis, new_hist)
+                    }
+                }
+                _ => None,
             }
         })
 }
 
+/// Figure out how to get the player to the exit
+///
+/// This is not necessarily the shortest path, just the first one this dumb
+/// algorithm found. If we wanted to find the shortest, we'd have
+/// to calculate them in parallel, because it's way too slow.
 fn solve_puzzle(input: &str) -> Option<Vec<Dir>> {
-    let (board, player) = Board::parse(input);
+    let (input1, input2) = input
+        .split_once("\n\n")
+        .expect("Couldn't find second board");
 
-    println!("Starting at ({}, {})", player.x, player.y);
+    let (b1, p1) = Board::parse(input1);
+    let (b2, p2) = Board::parse(input2);
 
-    solve(&board, player, HashSet::from([player]), Vec::new())
+    println!(
+        "A starting at ({}, {}), B starting at ({}, {})",
+        p1.x, p1.y, p2.x, p2.y
+    );
+
+    solve(&b1, p1, &b2, p2, HashSet::from([(p1, p2)]), Vec::new())
 }
 
 #[cfg(test)]

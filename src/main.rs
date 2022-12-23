@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::io::Read;
 
 #[derive(Debug)]
 struct Board {
@@ -9,7 +10,7 @@ struct Board {
 impl Board {
     fn get_tile(&self, Player { x, y }: Player) -> Tile {
         if y == -1 {
-            if x.is_positive() && usize::try_from(x).unwrap().eq(&self.exit) {
+            if x >= 0 && usize::try_from(x).unwrap().eq(&self.exit) {
                 Tile::Exit
             } else {
                 Tile::Wall
@@ -146,15 +147,29 @@ enum State {
 impl State {
     fn from(dir: Dir, from: Player, to: Player, board: &Board) -> Self {
         let tile = board.get_tile(to);
-        dbg!(tile);
 
         match tile {
             Tile::None | Tile::Player => State::Just(to),
-            Tile::Wall => State::Just(from),
-            Tile::Teleport => State::Just(to.teleport(board)),
-            Tile::Ice => to.slide(dir, board),
-            Tile::Pit => State::Dead,
-            Tile::Exit => State::Success,
+            Tile::Wall => {
+                println!("Bumped into a wall");
+                State::Just(from)
+            }
+            Tile::Teleport => {
+                println!("ZOOP! Teleported");
+                State::Just(to.teleport(board))
+            }
+            Tile::Ice => {
+                println!("Ice! Wheee");
+                to.slide(dir, board)
+            }
+            Tile::Pit => {
+                println!("Fell into a pit. GAME OVER");
+                State::Dead
+            }
+            Tile::Exit => {
+                println!("I'm free!");
+                State::Success
+            }
         }
     }
 }
@@ -180,19 +195,19 @@ fn apply(
 ) -> (State, HashSet<Player>, Vec<Dir>) {
     println!();
     println!("------------------------");
-    dbg!(d);
+    println!("Heading {:?}", d);
+
     let new_p = p.hop(d);
 
-    dbg!(new_p);
+    println!("We are now here: ({}, {})", new_p.x, new_p.y);
 
     if visited.contains(&new_p) {
+        println!("We've been here before. Backtracking...");
         return (State::Repeated, visited, history);
     }
 
     visited.insert(new_p);
     history.push(d);
-
-    dbg!(&visited, &history);
 
     (State::from(d, p, new_p, b), visited, history)
 }
@@ -203,6 +218,12 @@ fn solve(b1: &Board, p1: Player, visited: HashSet<Player>, history: Vec<Dir>) ->
         .iter()
         .find_map(|dir| {
             let (new_p, new_vis, new_hist) = apply(*dir, b1, p1, visited.clone(), history.clone());
+
+            print!("Our path so far: ");
+            for entry in &new_hist {
+                print!(" {:?}", entry);
+            }
+            println!();
 
             match new_p {
                 State::Success => Some(new_hist),
@@ -215,7 +236,7 @@ fn solve(b1: &Board, p1: Player, visited: HashSet<Player>, history: Vec<Dir>) ->
 fn solve_puzzle(input: &str) -> Option<Vec<Dir>> {
     let (board, player) = Board::parse(input);
 
-    dbg!(&board, player);
+    println!("Starting at ({}, {})", player.x, player.y);
 
     solve(&board, player, HashSet::from([player]), Vec::new())
 }
@@ -227,18 +248,15 @@ mod tests {
     #[test]
     fn simple() {
         let input = "
- x
-.....
-.....
-.....
-...R.
-.....
+x
+...
+...
+..R
 "
         .trim_matches('\n');
         assert_eq!(
             Some(vec![
-                Up, Up, Up, Up, Right, Up, Down, Down, Down, Down, Down, Right, Left, Down, Left,
-                Up, Up, Up, Up, Up, Left, Up
+                Up, Up, Up, Right, Left, Up, Down, Down, Down, Left, Up, Up, Up
             ]),
             super::solve_puzzle(input)
         )
@@ -281,10 +299,11 @@ fn main() {
     let mut input = String::new();
 
     std::io::stdin()
-        .read_line(&mut input)
+        .read_to_string(&mut input)
         .expect("couldn't read stdin");
 
     if let Some(directions) = solve_puzzle(&input) {
+        println!("SOLUTION:");
         for dir in directions {
             println!("{:?}", dir);
         }

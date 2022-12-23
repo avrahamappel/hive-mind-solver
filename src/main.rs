@@ -25,29 +25,6 @@ impl Board {
         }
     }
 
-    /// Figure out where the current teleport will exit
-    fn get_teleport_target(&self, p: Player) -> Player {
-        if !matches!(self.get_tile(p), Tile::Teleport) {
-            panic!("Tried to get teleport target of non-teleport tile");
-        }
-
-        let (x, y) = self
-            .tiles
-            .iter()
-            .enumerate()
-            .find_map(|(y, row)| {
-                row.iter().enumerate().find_map(|(x, tile)| {
-                    (x != p.x.try_into().expect("x should be positive here")
-                        && y != p.y.try_into().expect("y should be positive here")
-                        && matches!(tile, Tile::Teleport))
-                    .then_some((x as isize, y as isize))
-                })
-            })
-            .expect("No second teleport tile found");
-
-        Player { x, y }
-    }
-
     fn parse(input: &str) -> (Self, Player) {
         let mut lines = input.lines();
 
@@ -100,6 +77,58 @@ struct Player {
     y: isize,
 }
 
+impl Player {
+    /// Hop one space in a direction
+    fn hop(&self, d: Dir) -> Player {
+        match d {
+            Dir::Up => Player {
+                x: self.x,
+                y: self.y - 1,
+            },
+            Dir::Down => Player {
+                x: self.x,
+                y: self.y + 1,
+            },
+            Dir::Right => Player {
+                x: self.x + 1,
+                y: self.y,
+            },
+            Dir::Left => Player {
+                x: self.x - 1,
+                y: self.y,
+            },
+        }
+    }
+
+    /// Slide on ice
+    fn slide(self, d: Dir, b: &Board) -> State {
+        State::from(d, self, self.hop(d), b)
+    }
+
+    /// Use a teleport
+    fn teleport(self, b: &Board) -> Self {
+        if !matches!(b.get_tile(self), Tile::Teleport) {
+            panic!("Tried to get teleport target of non-teleport tile");
+        }
+
+        let (x, y) = b
+            .tiles
+            .iter()
+            .enumerate()
+            .find_map(|(y, row)| {
+                row.iter().enumerate().find_map(|(x, tile)| {
+                    (x != self.x.try_into().expect("x should be positive here")
+                        && y != self.y.try_into().expect("y should be positive here")
+                        && matches!(tile, Tile::Teleport))
+                    .then_some((x as isize, y as isize))
+                })
+            })
+            .expect("No second teleport tile found");
+
+        Self { x, y }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Dir {
     Up,
@@ -113,6 +142,22 @@ enum State {
     Dead,
     Repeated,
     Just(Player),
+}
+
+impl State {
+    fn from(dir: Dir, from: Player, to: Player, board: &Board) -> Self {
+        let tile = board.get_tile(to);
+        dbg!(tile);
+
+        match tile {
+            Tile::None | Tile::Player => State::Just(to),
+            Tile::Wall => State::Just(from),
+            Tile::Teleport => State::Just(to.teleport(board)),
+            Tile::Ice => to.slide(dir, board),
+            Tile::Pit => State::Dead,
+            Tile::Exit => State::Success,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -137,12 +182,7 @@ fn apply(
     println!();
     println!("------------------------");
     dbg!(d);
-    let new_p = match d {
-        Dir::Up => Player { x: p.x, y: p.y - 1 },
-        Dir::Down => Player { x: p.x, y: p.y + 1 },
-        Dir::Right => Player { x: p.x + 1, y: p.y },
-        Dir::Left => Player { x: p.x - 1, y: p.y },
-    };
+    let new_p = p.hop(d);
 
     dbg!(new_p);
 
@@ -155,25 +195,7 @@ fn apply(
 
     dbg!(&visited, &history);
 
-    let tile = b.get_tile(new_p);
-
-    dbg!(tile);
-
-    match tile {
-        Tile::None | Tile::Player => (State::Just(new_p), visited, history),
-        Tile::Wall => (State::Just(p), visited, history),
-        Tile::Teleport => {
-            let target = b.get_teleport_target(new_p);
-            visited.insert(target);
-            (State::Just(target), visited, history)
-        }
-        Tile::Ice => {
-            // Repeat this step (sliding along ice)
-            apply(d, b, new_p, visited, history)
-        }
-        Tile::Pit => (State::Dead, visited, history),
-        Tile::Exit => (State::Success, visited, history),
-    }
+    (State::from(d, p, new_p, b), visited, history)
 }
 
 /// Figure out how to get the player to the exit
@@ -221,6 +243,22 @@ mod tests {
             ]),
             super::solve_puzzle(input)
         )
+    }
+
+    #[test]
+    fn ice() {
+        let input = "
+ x
+...
+.IW
+..R
+"
+        .trim_matches('\n');
+
+        assert_eq!(
+            Some(vec![Up, Down, Right, Left, Up, Up]),
+            super::solve_puzzle(input)
+        );
     }
 }
 

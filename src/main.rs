@@ -117,10 +117,9 @@ impl Player {
             .enumerate()
             .find_map(|(y, row)| {
                 row.iter().enumerate().find_map(|(x, tile)| {
-                    (x != self.x.try_into().expect("x should be positive here")
-                        && y != self.y.try_into().expect("y should be positive here")
-                        && matches!(tile, Tile::Teleport))
-                    .then_some((x as isize, y as isize))
+                    (matches!(tile, Tile::Teleport)
+                        && !(x == self.x as usize && y == self.y as usize))
+                        .then_some((x as isize, y as isize))
                 })
             })
             .expect("No second teleport tile found");
@@ -257,6 +256,22 @@ mod tests {
 
         assert_eq!(
             Some(vec![Up, Down, Right, Left, Up, Up]),
+            super::solve_puzzle(input)
+        );
+    }
+
+    #[test]
+    fn teleport_and_pit() {
+        let input = "
+  x
+...
+TPT
+.R.
+"
+        .trim_matches('\n');
+
+        assert_eq!(
+            Some(vec![Down, Right, Up, Up, Up, Down, Up, Up]),
             super::solve_puzzle(input)
         );
     }

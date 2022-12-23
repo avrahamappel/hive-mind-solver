@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+#[derive(Debug)]
 struct Board {
     tiles: Vec<Vec<Tile>>,
     exit: usize,
@@ -13,8 +14,8 @@ impl Board {
             } else {
                 Tile::Wall
             }
-        } else if x == -1 {
-            Tile::Exit
+        } else if y == self.tiles.len() as isize || x == -1 || x == self.tiles[0].len() as isize {
+            Tile::Wall
         } else {
             *self
                 .tiles
@@ -25,7 +26,7 @@ impl Board {
     }
 
     /// Figure out where the current teleport will exit
-    fn get_teleport_target(&self, p: Player) -> State {
+    fn get_teleport_target(&self, p: Player) -> Player {
         if !matches!(self.get_tile(p), Tile::Teleport) {
             panic!("Tried to get teleport target of non-teleport tile");
         }
@@ -44,7 +45,7 @@ impl Board {
             })
             .expect("No second teleport tile found");
 
-        State::Just(Player { x, y })
+        Player { x, y }
     }
 
     fn parse(input: &str) -> (Self, Player) {
@@ -93,7 +94,7 @@ impl Board {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 struct Player {
     x: isize,
     y: isize,
@@ -114,7 +115,7 @@ enum State {
     Just(Player),
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum Tile {
     None,
     Player,
@@ -133,12 +134,17 @@ fn apply(
     mut visited: HashSet<Player>,
     mut history: Vec<Dir>,
 ) -> (State, HashSet<Player>, Vec<Dir>) {
+    println!();
+    println!("------------------------");
+    dbg!(d);
     let new_p = match d {
         Dir::Up => Player { x: p.x, y: p.y - 1 },
         Dir::Down => Player { x: p.x, y: p.y + 1 },
         Dir::Right => Player { x: p.x + 1, y: p.y },
         Dir::Left => Player { x: p.x - 1, y: p.y },
     };
+
+    dbg!(new_p);
 
     if visited.contains(&new_p) {
         return (State::Repeated, visited, history);
@@ -147,22 +153,26 @@ fn apply(
     visited.insert(new_p);
     history.push(d);
 
+    dbg!(&visited, &history);
+
     let tile = b.get_tile(new_p);
 
-    if let Tile::Ice = tile {
-        // Repeat this step (sliding along ice)
-        apply(d, b, new_p, visited, history)
-    } else {
-        let state = match tile {
-            Tile::None | Tile::Player => State::Just(new_p),
-            Tile::Wall => State::Just(p),
-            Tile::Teleport => b.get_teleport_target(new_p),
-            Tile::Ice => unreachable!(),
-            Tile::Pit => State::Dead,
-            Tile::Exit => State::Success,
-        };
+    dbg!(tile);
 
-        (state, visited, history)
+    match tile {
+        Tile::None | Tile::Player => (State::Just(new_p), visited, history),
+        Tile::Wall => (State::Just(p), visited, history),
+        Tile::Teleport => {
+            let target = b.get_teleport_target(new_p);
+            visited.insert(target);
+            (State::Just(target), visited, history)
+        }
+        Tile::Ice => {
+            // Repeat this step (sliding along ice)
+            apply(d, b, new_p, visited, history)
+        }
+        Tile::Pit => (State::Dead, visited, history),
+        Tile::Exit => (State::Success, visited, history),
     }
 }
 
@@ -184,6 +194,8 @@ fn solve(b1: &Board, p1: Player, visited: HashSet<Player>, history: Vec<Dir>) ->
 fn solve_puzzle(input: &str) -> Option<Vec<Dir>> {
     let (board, player) = Board::parse(input);
 
+    dbg!(&board, player);
+
     solve(&board, player, HashSet::from([player]), Vec::new())
 }
 
@@ -200,9 +212,13 @@ mod tests {
 .....
 ...R.
 .....
-";
+"
+        .trim_matches('\n');
         assert_eq!(
-            Some(vec![Left, Left, Up, Up, Up, Up]),
+            Some(vec![
+                Up, Up, Up, Up, Right, Up, Down, Down, Down, Down, Down, Right, Left, Down, Left,
+                Up, Up, Up, Up, Up, Left, Up
+            ]),
             super::solve_puzzle(input)
         )
     }

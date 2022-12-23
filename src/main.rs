@@ -1,13 +1,37 @@
+use std::collections::HashSet;
+
 struct Board {
     tiles: Vec<Vec<Tile>>,
     exit: usize,
 }
 
-struct Player {
-    x: usize,
-    y: usize,
+impl Board {
+    fn get_tile(&self, Player { x, y }: Player) -> Tile {
+        if y == -1 {
+            if x.is_positive() && usize::try_from(x).unwrap().eq(&self.exit) {
+                Tile::Exit
+            } else {
+                Tile::Wall
+            }
+        } else if x == -1 {
+            Tile::Exit
+        } else {
+            *self
+                .tiles
+                .get(y as usize)
+                .and_then(|r| r.get(x as usize))
+                .expect("x and y should be positive")
+        }
+    }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+struct Player {
+    x: isize,
+    y: isize,
+}
+
+#[derive(Clone, Copy)]
 enum Dir {
     Up,
     Down,
@@ -16,12 +40,13 @@ enum Dir {
 }
 
 enum State {
-    Success(Vec<Dir>),
+    Success,
     Dead,
     Repeated,
     Just(Player),
 }
 
+#[derive(Clone, Copy)]
 enum Tile {
     None,
     Wall,
@@ -32,39 +57,60 @@ enum Tile {
 }
 
 /// Move the player in the given direction and find out what happens
-fn apply(d: Dir, b: Board, p: Player, visited: HashSet<Player>, history: Vec<Dir>) -> State {
+fn apply(
+    d: Dir,
+    b: &Board,
+    p: Player,
+    mut visited: HashSet<Player>,
+    mut history: Vec<Dir>,
+) -> (State, HashSet<Player>, Vec<Dir>) {
     let new_p = match d {
-        Dir::Up => Player { x: d.x, y: d.y - 1 },
-        Dir::Down => Player { x: d.x, y: d.y + 1 },
-        Dir::Right => Player { x: d.x + 1, y: d.y },
-        Dir::Left => Player { x: d.x - 1, y: d.y },
+        Dir::Up => Player { x: p.x, y: p.y - 1 },
+        Dir::Down => Player { x: p.x, y: p.y + 1 },
+        Dir::Right => Player { x: p.x + 1, y: p.y },
+        Dir::Left => Player { x: p.x - 1, y: p.y },
     };
 
-    match b.getTile(new_p) {
-        Tile::None => State::Just(new_p), // @TODO check if tile was already visited
-        Tile::Wall => State::Just(p),
-        Tile::Teleport => todo!(), // @TODO get position of other teleport
-        Tile::Pit => State::Dead,
-        Tile::Ice => apply(d, b, new_p), // Repeat this step (sliding along ice)
-        Tile::Exit => State::Success(history),
+    if visited.contains(&new_p) {
+        return (State::Repeated, visited, history);
+    }
+
+    visited.insert(new_p);
+    history.push(d);
+
+    let tile = b.get_tile(new_p);
+
+    if let Tile::Ice = tile {
+        apply(d, b, new_p, visited, history) // Repeat this step (sliding along ice)
+    } else {
+        let state = match tile {
+            Tile::None => State::Just(new_p),
+            Tile::Wall => State::Just(p),
+            Tile::Teleport => todo!(), // @TODO get position of other teleport
+            Tile::Ice => unreachable!(),
+            Tile::Pit => State::Dead,
+            Tile::Exit => State::Success,
+        };
+
+        (state, visited, history)
     }
 }
 
 /// Figure out how to get the player to the exit
-fn solve(b1: Board, p1: Player) -> Option<Vec<Dir>> {
+fn solve(b1: &Board, p1: Player, visited: HashSet<Player>, history: Vec<Dir>) -> Option<Vec<Dir>> {
     [Dir::Up, Dir::Down, Dir::Right, Dir::Left]
         .iter()
-        .filterMap(|dir| {
-            let new_p = apply(dir, b1, p1);
+        .filter_map(|dir| {
+            let (new_p, new_vis, new_hist) = apply(*dir, b1, p1, visited.clone(), history.clone());
 
             match new_p {
-                State::Success => Some(history),
+                State::Success => Some(new_hist),
                 State::Dead => None,
                 State::Repeated => None,
-                State::Just(np) => solve(b1, np),
+                State::Just(np) => solve(b1, np, new_vis, new_hist),
             }
         })
-        .first()
+        .next()
 }
 
 fn main() {

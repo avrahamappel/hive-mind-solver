@@ -23,6 +23,29 @@ impl Board {
                 .expect("x and y should be positive")
         }
     }
+
+    /// Figure out where the current teleport will exit
+    fn get_teleport_target(&self, p: Player) -> State {
+        if !matches!(self.get_tile(p), Tile::Teleport) {
+            panic!("Tried to get teleport target of non-teleport tile");
+        }
+
+        let (x, y) = self
+            .tiles
+            .iter()
+            .enumerate()
+            .find_map(|(y, row)| {
+                row.iter().enumerate().find_map(|(x, tile)| {
+                    (x != p.x.try_into().expect("x should be positive here")
+                        && y != p.y.try_into().expect("y should be positive here")
+                        && matches!(tile, Tile::Teleport))
+                    .then_some((x as isize, y as isize))
+                })
+            })
+            .expect("No second teleport tile found");
+
+        State::Just(Player { x, y })
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -81,12 +104,13 @@ fn apply(
     let tile = b.get_tile(new_p);
 
     if let Tile::Ice = tile {
-        apply(d, b, new_p, visited, history) // Repeat this step (sliding along ice)
+        // Repeat this step (sliding along ice)
+        apply(d, b, new_p, visited, history)
     } else {
         let state = match tile {
             Tile::None => State::Just(new_p),
             Tile::Wall => State::Just(p),
-            Tile::Teleport => todo!(), // @TODO get position of other teleport
+            Tile::Teleport => b.get_teleport_target(new_p),
             Tile::Ice => unreachable!(),
             Tile::Pit => State::Dead,
             Tile::Exit => State::Success,
@@ -100,7 +124,7 @@ fn apply(
 fn solve(b1: &Board, p1: Player, visited: HashSet<Player>, history: Vec<Dir>) -> Option<Vec<Dir>> {
     [Dir::Up, Dir::Down, Dir::Right, Dir::Left]
         .iter()
-        .filter_map(|dir| {
+        .find_map(|dir| {
             let (new_p, new_vis, new_hist) = apply(*dir, b1, p1, visited.clone(), history.clone());
 
             match new_p {
@@ -110,7 +134,6 @@ fn solve(b1: &Board, p1: Player, visited: HashSet<Player>, history: Vec<Dir>) ->
                 State::Just(np) => solve(b1, np, new_vis, new_hist),
             }
         })
-        .next()
 }
 
 fn main() {

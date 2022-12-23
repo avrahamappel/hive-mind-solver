@@ -46,6 +46,51 @@ impl Board {
 
         State::Just(Player { x, y })
     }
+
+    fn parse(input: &str) -> (Self, Player) {
+        let mut lines = input.lines();
+
+        let exit = lines
+            .next()
+            .expect("Input was empty")
+            .char_indices()
+            .find_map(|(i, c)| c.eq(&'x').then_some(i))
+            .expect("Couldn't find exit position");
+
+        let tiles = lines
+            .map(|l| {
+                l.chars()
+                    .map(|c| match c {
+                        'R' => Tile::Player,
+                        '.' => Tile::None,
+                        'T' => Tile::Teleport,
+                        'P' => Tile::Pit,
+                        'I' => Tile::Ice,
+                        'W' => Tile::Wall,
+                        _ => unimplemented!(),
+                    })
+                    .collect()
+            })
+            .collect();
+
+        let board = Self { tiles, exit };
+
+        let player = board
+            .tiles
+            .iter()
+            .enumerate()
+            .find_map(|(y, r)| {
+                r.iter().enumerate().find_map(|(x, t)| {
+                    matches!(t, Tile::Player).then(|| Player {
+                        x: x as isize,
+                        y: y as isize,
+                    })
+                })
+            })
+            .expect("Player position not specified");
+
+        (board, player)
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -54,7 +99,7 @@ struct Player {
     y: isize,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Dir {
     Up,
     Down,
@@ -72,6 +117,7 @@ enum State {
 #[derive(Clone, Copy)]
 enum Tile {
     None,
+    Player,
     Wall,
     Teleport,
     Pit,
@@ -108,7 +154,7 @@ fn apply(
         apply(d, b, new_p, visited, history)
     } else {
         let state = match tile {
-            Tile::None => State::Just(new_p),
+            Tile::None | Tile::Player => State::Just(new_p),
             Tile::Wall => State::Just(p),
             Tile::Teleport => b.get_teleport_target(new_p),
             Tile::Ice => unreachable!(),
@@ -129,13 +175,51 @@ fn solve(b1: &Board, p1: Player, visited: HashSet<Player>, history: Vec<Dir>) ->
 
             match new_p {
                 State::Success => Some(new_hist),
-                State::Dead => None,
-                State::Repeated => None,
+                State::Dead | State::Repeated => None,
                 State::Just(np) => solve(b1, np, new_vis, new_hist),
             }
         })
 }
 
+fn solve_puzzle(input: &str) -> Option<Vec<Dir>> {
+    let (board, player) = Board::parse(input);
+
+    solve(&board, player, HashSet::from([player]), Vec::new())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Dir::*;
+
+    #[test]
+    fn simple() {
+        let input = "
+ x
+.....
+.....
+.....
+...R.
+.....
+";
+        assert_eq!(
+            Some(vec![Left, Left, Up, Up, Up, Up]),
+            super::solve_puzzle(input)
+        )
+    }
+}
+
 fn main() {
-    println!("Hello, world!");
+    let mut input = String::new();
+
+    std::io::stdin()
+        .read_line(&mut input)
+        .expect("couldn't read stdin");
+
+    if let Some(directions) = solve_puzzle(&input) {
+        for dir in directions {
+            println!("{:?}", dir);
+        }
+    } else {
+        println!("Couldn't solve puzzle");
+    }
 }

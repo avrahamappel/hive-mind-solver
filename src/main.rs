@@ -275,16 +275,19 @@ mod tests {
     #[test]
     fn simple() {
         let input = "
-x
+ x
+...
+...
+.R.
+
+ x
 ...
 ...
 ..R
 "
         .trim_matches('\n');
         assert_eq!(
-            Some(vec![
-                Up, Up, Up, Right, Left, Up, Down, Down, Down, Left, Up, Up, Up
-            ]),
+            Some(vec![Up, Up, Right, Down, Down, Left, Up, Up, Up]),
             super::solve_puzzle(input)
         )
     }
@@ -296,11 +299,16 @@ x
 ...
 .IW
 ..R
+
+  x
+...
+.II
+..R
 "
         .trim_matches('\n');
 
         assert_eq!(
-            Some(vec![Up, Down, Right, Left, Up, Up]),
+            Some(vec![Up, Left, Up, Down, Left, Up, Right, Up, Up]),
             super::solve_puzzle(input)
         );
     }
@@ -310,13 +318,18 @@ x
         let input = "
   x
 ...
+.I.
+.R.
+
+  x
+...
 TPT
 .R.
 "
         .trim_matches('\n');
 
         assert_eq!(
-            Some(vec![Down, Right, Up, Up, Up, Down, Up, Up]),
+            Some(vec![Right, Up, Up, Down, Up, Up]),
             super::solve_puzzle(input)
         );
     }

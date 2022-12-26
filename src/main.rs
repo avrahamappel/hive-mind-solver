@@ -114,8 +114,8 @@ impl Player {
     }
 
     /// Slide on ice
-    fn slide(self, d: Dir, b: &Board) -> State {
-        State::from(d, self, self.hop(d), b)
+    fn slide(self, d: Dir, b: &Board) -> PlayerState {
+        PlayerState::from(d, self, self.hop(d), b)
     }
 
     /// Use a teleport
@@ -149,38 +149,30 @@ enum Dir {
     Left,
 }
 
-enum State {
+enum PlayerState {
     Success,
     Dead,
     Just(Player),
 }
 
-impl State {
+#[derive(Clone, Copy)]
+enum TurnState {
+    Success,
+    Fail,
+    Ok,
+}
+
+impl PlayerState {
     fn from(dir: Dir, from: Player, to: Player, board: &Board) -> Self {
         let tile = board.get_tile(to);
 
         match tile {
-            Tile::None => State::Just(to),
-            Tile::Wall => {
-                println!("Bumped into a wall");
-                State::Just(from)
-            }
-            Tile::Teleport => {
-                println!("ZOOP! Teleported");
-                State::Just(to.teleport(board))
-            }
-            Tile::Ice => {
-                println!("Ice! Wheee");
-                to.slide(dir, board)
-            }
-            Tile::Pit => {
-                println!("Fell into a pit. GAME OVER");
-                State::Dead
-            }
-            Tile::Exit => {
-                println!("I'm free!");
-                State::Success
-            }
+            Tile::None => PlayerState::Just(to),
+            Tile::Wall => PlayerState::Just(from),
+            Tile::Teleport => PlayerState::Just(to.teleport(board)),
+            Tile::Ice => to.slide(dir, board),
+            Tile::Pit => PlayerState::Dead,
+            Tile::Exit => PlayerState::Success,
         }
     }
 }
@@ -196,73 +188,91 @@ enum Tile {
 }
 
 /// Move the player in the given direction and find out what happens
-fn apply(d: Dir, b: &Board, p: Player) -> State {
-    println!("Heading {:?}", d);
-
+fn apply(d: Dir, b: &Board, p: Player) -> PlayerState {
     let new_p = p.hop(d);
 
-    println!("We are now here: ({}, {})", new_p.x, new_p.y);
-
-    State::from(d, p, new_p, b)
+    PlayerState::from(d, p, new_p, b)
 }
 
-/// Figure out how to get the player to the exit
-fn solve(
-    b1: &Board,
+#[derive(Clone)]
+struct Turn<'a> {
+    b1: &'a Board,
     p1: Player,
-    b2: &Board,
+    b2: &'a Board,
     p2: Player,
     visited: HashSet<(Player, Player)>,
     history: Vec<Dir>,
-) -> Option<Vec<Dir>> {
-    [Dir::Up, Dir::Down, Dir::Right, Dir::Left]
-        .into_iter()
-        .find_map(|dir| {
-            println!();
-            println!("-----------Player A-------------");
-            let new_p1 = apply(dir, b1, p1);
-            println!();
-            println!("-----------Player B-------------");
-            let new_p2 = apply(dir, b2, p2);
+    state: TurnState,
+}
 
-            let mut new_hist = history.clone();
-            new_hist.push(dir);
+impl<'a, 'b> Turn<'b>
+where
+    'a: 'b,
+{
+    fn new(b1: &'a Board, p1: Player, b2: &'a Board, p2: Player) -> Self {
+        Self {
+            b1,
+            p1,
+            b2,
+            p2,
+            visited: HashSet::from([(p1, p2)]),
+            history: Vec::new(),
+            state: TurnState::Ok,
+        }
+    }
 
-            print!("Our path so far: ");
-            for entry in &new_hist {
-                print!(" {:?}", entry);
-            }
-            println!();
+    fn apply(mut self, dir: Dir) -> Self {
+        let state1 = apply(dir, self.b1, self.p1);
+        let state2 = apply(dir, self.b2, self.p2);
 
-            match (new_p1, new_p2) {
-                (State::Success, State::Success) => {
-                    println!("We've both made it!");
-                    Some(new_hist)
+        self.history.push(dir);
+
+        self.state = match (state1, state2) {
+            (PlayerState::Success, PlayerState::Success) => TurnState::Success,
+            (PlayerState::Just(p1), PlayerState::Just(p2)) => {
+                let vis_entry = (p1, p2);
+
+                if self.visited.contains(&vis_entry) {
+                    TurnState::Fail
+                } else {
+                    self.visited.insert(vis_entry);
+                    self.p1 = p1;
+                    self.p2 = p2;
+                    TurnState::Ok
                 }
-                (State::Just(np1), State::Just(np2)) => {
-                    let vis_entry = (np1, np2);
-
-                    let mut new_vis = visited.clone();
-
-                    if new_vis.contains(&vis_entry) {
-                        println!("We've been here before. Backtracking...");
-                        None
-                    } else {
-                        new_vis.insert(vis_entry);
-
-                        solve(b1, np1, b2, np2, new_vis, new_hist)
-                    }
-                }
-                _ => None,
             }
-        })
+            _ => TurnState::Fail,
+        };
+
+        self
+    }
 }
 
 /// Figure out how to get the player to the exit
-///
-/// This is not necessarily the shortest path, just the first one this dumb
-/// algorithm found. If we wanted to find the shortest, we'd have
-/// to calculate them in parallel, because it's way too slow.
+fn solve(turns: Vec<Turn>) -> Option<Vec<Dir>> {
+    if turns.is_empty() {
+        None
+    } else if let Some(turn) = turns.iter().find(|t| matches!(t.state, TurnState::Success)) {
+        println!("We've made it!");
+        Some(turn.history.clone())
+    } else {
+        println!("Evaluating {} paths", turns.len());
+
+        solve(
+            turns
+                .into_iter()
+                .filter(|t| matches!(t.state, TurnState::Ok))
+                .flat_map(|turn| {
+                    [Dir::Up, Dir::Down, Dir::Right, Dir::Left]
+                        .into_iter()
+                        .map(move |dir| turn.clone().apply(dir))
+                })
+                .collect(),
+        )
+    }
+}
+
+/// Figure out the shortest path to get the player to the exit
 fn solve_puzzle(input: &str) -> Result<Vec<Dir>> {
     let (input1, input2) = input
         .split_once("\n\n")
@@ -278,7 +288,7 @@ fn solve_puzzle(input: &str) -> Result<Vec<Dir>> {
         p1.x, p1.y, p2.x, p2.y
     );
 
-    solve(&b1, p1, &b2, p2, HashSet::from([(p1, p2)]), Vec::new()).ok_or(Error::NoSolution)
+    solve(vec![Turn::new(&b1, p1, &b2, p2)]).ok_or(Error::NoSolution)
 }
 
 #[cfg(test)]
@@ -300,7 +310,7 @@ mod tests {
 "
         .trim_matches('\n');
         assert_eq!(
-            Ok(vec![Up, Up, Right, Down, Down, Left, Up, Up, Up]),
+            Ok(vec![Up, Up, Right, Left, Up]),
             super::solve_puzzle(input)
         )
     }
@@ -321,7 +331,7 @@ mod tests {
         .trim_matches('\n');
 
         assert_eq!(
-            Ok(vec![Up, Left, Up, Down, Left, Up, Right, Up, Up]),
+            Ok(vec![Left, Left, Up, Right, Up, Up]),
             super::solve_puzzle(input)
         );
     }
@@ -342,7 +352,7 @@ TPT
         .trim_matches('\n');
 
         assert_eq!(
-            Ok(vec![Right, Up, Up, Down, Up, Up]),
+            Ok(vec![Left, Up, Right, Up, Up]),
             super::solve_puzzle(input)
         );
     }

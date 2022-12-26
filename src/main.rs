@@ -1,6 +1,16 @@
 use std::collections::HashSet;
 use std::io::Read;
 
+#[derive(PartialEq, Debug)]
+enum Error {
+    InputEmpty,
+    NoExit,
+    NoSolution,
+    NoPlayer,
+}
+
+type Result<T> = std::result::Result<T, Error>;
+
 #[derive(Debug)]
 struct Board {
     tiles: Vec<Vec<Tile>>,
@@ -8,6 +18,36 @@ struct Board {
 }
 
 impl Board {
+    /// Parse a board definition from the given string
+    fn parse(input: &str) -> Result<Self> {
+        let mut lines = input.lines();
+
+        let exit = lines
+            .next()
+            .ok_or(Error::InputEmpty)?
+            .char_indices()
+            .find_map(|(i, c)| c.eq(&'x').then_some(i))
+            .ok_or(Error::NoExit)?;
+
+        let tiles = lines
+            .map(|l| {
+                l.chars()
+                    .map(|c| match c {
+                        '.' | 'R' => Tile::None,
+                        'T' => Tile::Teleport,
+                        'P' => Tile::Pit,
+                        'I' => Tile::Ice,
+                        'W' => Tile::Wall,
+                        _ => unimplemented!(),
+                    })
+                    .collect()
+            })
+            .collect();
+
+        Ok(Self { tiles, exit })
+    }
+
+    /// Get the tile at the player's position
     fn get_tile(&self, Player { x, y }: Player) -> Tile {
         if y == -1 {
             if x >= 0 && usize::try_from(x).unwrap().eq(&self.exit) {
@@ -25,51 +65,6 @@ impl Board {
                 .expect("x and y should be positive")
         }
     }
-
-    fn parse(input: &str) -> (Self, Player) {
-        let mut lines = input.lines();
-
-        let exit = lines
-            .next()
-            .expect("Input was empty")
-            .char_indices()
-            .find_map(|(i, c)| c.eq(&'x').then_some(i))
-            .expect("Couldn't find exit position");
-
-        let tiles = lines
-            .map(|l| {
-                l.chars()
-                    .map(|c| match c {
-                        'R' => Tile::Player,
-                        '.' => Tile::None,
-                        'T' => Tile::Teleport,
-                        'P' => Tile::Pit,
-                        'I' => Tile::Ice,
-                        'W' => Tile::Wall,
-                        _ => unimplemented!(),
-                    })
-                    .collect()
-            })
-            .collect();
-
-        let board = Self { tiles, exit };
-
-        let player = board
-            .tiles
-            .iter()
-            .enumerate()
-            .find_map(|(y, r)| {
-                r.iter().enumerate().find_map(|(x, t)| {
-                    matches!(t, Tile::Player).then(|| Player {
-                        x: x as isize,
-                        y: y as isize,
-                    })
-                })
-            })
-            .expect("Player position not specified");
-
-        (board, player)
-    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -79,6 +74,23 @@ struct Player {
 }
 
 impl Player {
+    /// Find the initial player position in the given board string
+    fn parse(input: &str) -> Result<Self> {
+        input
+            .lines()
+            .skip(1)
+            .enumerate()
+            .find_map(|(y, r)| {
+                r.char_indices().find_map(|(x, t)| {
+                    matches!(t, 'R').then(|| Self {
+                        x: x as isize,
+                        y: y as isize,
+                    })
+                })
+            })
+            .ok_or(Error::NoPlayer)
+    }
+
     /// Hop one space in a direction
     fn hop(&self, d: Dir) -> Player {
         match d {
@@ -148,7 +160,7 @@ impl State {
         let tile = board.get_tile(to);
 
         match tile {
-            Tile::None | Tile::Player => State::Just(to),
+            Tile::None => State::Just(to),
             Tile::Wall => {
                 println!("Bumped into a wall");
                 State::Just(from)
@@ -176,7 +188,6 @@ impl State {
 #[derive(Clone, Copy, Debug)]
 enum Tile {
     None,
-    Player,
     Wall,
     Teleport,
     Pit,
@@ -252,20 +263,22 @@ fn solve(
 /// This is not necessarily the shortest path, just the first one this dumb
 /// algorithm found. If we wanted to find the shortest, we'd have
 /// to calculate them in parallel, because it's way too slow.
-fn solve_puzzle(input: &str) -> Option<Vec<Dir>> {
+fn solve_puzzle(input: &str) -> Result<Vec<Dir>> {
     let (input1, input2) = input
         .split_once("\n\n")
         .expect("Couldn't find second board");
 
-    let (b1, p1) = Board::parse(input1);
-    let (b2, p2) = Board::parse(input2);
+    let b1 = Board::parse(input1)?;
+    let p1 = Player::parse(input1)?;
+    let b2 = Board::parse(input2)?;
+    let p2 = Player::parse(input2)?;
 
     println!(
         "A starting at ({}, {}), B starting at ({}, {})",
         p1.x, p1.y, p2.x, p2.y
     );
 
-    solve(&b1, p1, &b2, p2, HashSet::from([(p1, p2)]), Vec::new())
+    solve(&b1, p1, &b2, p2, HashSet::from([(p1, p2)]), Vec::new()).ok_or(Error::NoSolution)
 }
 
 #[cfg(test)]
@@ -287,7 +300,7 @@ mod tests {
 "
         .trim_matches('\n');
         assert_eq!(
-            Some(vec![Up, Up, Right, Down, Down, Left, Up, Up, Up]),
+            Ok(vec![Up, Up, Right, Down, Down, Left, Up, Up, Up]),
             super::solve_puzzle(input)
         )
     }
@@ -308,7 +321,7 @@ mod tests {
         .trim_matches('\n');
 
         assert_eq!(
-            Some(vec![Up, Left, Up, Down, Left, Up, Right, Up, Up]),
+            Ok(vec![Up, Left, Up, Down, Left, Up, Right, Up, Up]),
             super::solve_puzzle(input)
         );
     }
@@ -329,7 +342,7 @@ TPT
         .trim_matches('\n');
 
         assert_eq!(
-            Some(vec![Right, Up, Up, Down, Up, Up]),
+            Ok(vec![Right, Up, Up, Down, Up, Up]),
             super::solve_puzzle(input)
         );
     }
@@ -342,12 +355,15 @@ fn main() {
         .read_to_string(&mut input)
         .expect("couldn't read stdin");
 
-    if let Some(directions) = solve_puzzle(&input) {
-        println!("SOLUTION:");
-        for dir in directions {
-            println!("{:?}", dir);
+    match solve_puzzle(&input) {
+        Ok(directions) => {
+            println!("SOLUTION:");
+            for dir in directions {
+                println!("{:?}", dir);
+            }
         }
-    } else {
-        println!("Couldn't solve puzzle");
+        Err(err) => {
+            println!("Couldn't solve puzzle: {:?}", err);
+        }
     }
 }

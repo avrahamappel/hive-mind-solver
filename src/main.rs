@@ -11,6 +11,16 @@ enum Error {
 
 type Result<T> = std::result::Result<T, Error>;
 
+#[derive(Clone, Copy, Debug)]
+enum Tile {
+    None,
+    Wall,
+    Teleport,
+    Pit,
+    Ice,
+    Exit,
+}
+
 #[derive(Debug)]
 struct Board {
     tiles: Vec<Vec<Tile>>,
@@ -33,12 +43,11 @@ impl Board {
             .map(|l| {
                 l.chars()
                     .map(|c| match c {
-                        '.' | 'R' => Tile::None,
                         'T' => Tile::Teleport,
                         'P' => Tile::Pit,
                         'I' => Tile::Ice,
                         'W' => Tile::Wall,
-                        _ => unimplemented!(),
+                        _ => Tile::None,
                     })
                     .collect()
             })
@@ -55,7 +64,10 @@ impl Board {
             } else {
                 Tile::Wall
             }
-        } else if y == self.tiles.len() as isize || x == -1 || x == self.tiles[0].len() as isize {
+        } else if y == self.tiles.len() as isize
+            || x == -1
+            || x == self.tiles[y as usize].len() as isize
+        {
             Tile::Wall
         } else {
             *self
@@ -63,6 +75,35 @@ impl Board {
                 .get(y as usize)
                 .and_then(|r| r.get(x as usize))
                 .expect("x and y should be positive")
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Dir {
+    Up,
+    Down,
+    Right,
+    Left,
+}
+
+enum PlayerState {
+    Success,
+    Dead,
+    Just(Player),
+}
+
+impl From<(Dir, Player, Player, &Board)> for PlayerState {
+    fn from((dir, from, to, board): (Dir, Player, Player, &Board)) -> Self {
+        let tile = board.get_tile(to);
+
+        match tile {
+            Tile::None => Self::Just(to),
+            Tile::Wall => Self::Just(from),
+            Tile::Teleport => Self::Just(to.teleport(board)),
+            Tile::Ice => to.slide(dir, board),
+            Tile::Pit => Self::Dead,
+            Tile::Exit => Self::Success,
         }
     }
 }
@@ -115,7 +156,7 @@ impl Player {
 
     /// Slide on ice
     fn slide(self, d: Dir, b: &Board) -> PlayerState {
-        PlayerState::from(d, self, self.hop(d), b)
+        PlayerState::from((d, self, self.hop(d), b))
     }
 
     /// Use a teleport
@@ -141,18 +182,11 @@ impl Player {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum Dir {
-    Up,
-    Down,
-    Right,
-    Left,
-}
+/// Move the player in the given direction and find out what happens
+fn apply(d: Dir, b: &Board, p: Player) -> PlayerState {
+    let new_p = p.hop(d);
 
-enum PlayerState {
-    Success,
-    Dead,
-    Just(Player),
+    PlayerState::from((d, p, new_p, b))
 }
 
 #[derive(Clone, Copy)]
@@ -160,38 +194,6 @@ enum TurnState {
     Success,
     Fail,
     Ok,
-}
-
-impl PlayerState {
-    fn from(dir: Dir, from: Player, to: Player, board: &Board) -> Self {
-        let tile = board.get_tile(to);
-
-        match tile {
-            Tile::None => PlayerState::Just(to),
-            Tile::Wall => PlayerState::Just(from),
-            Tile::Teleport => PlayerState::Just(to.teleport(board)),
-            Tile::Ice => to.slide(dir, board),
-            Tile::Pit => PlayerState::Dead,
-            Tile::Exit => PlayerState::Success,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-enum Tile {
-    None,
-    Wall,
-    Teleport,
-    Pit,
-    Ice,
-    Exit,
-}
-
-/// Move the player in the given direction and find out what happens
-fn apply(d: Dir, b: &Board, p: Player) -> PlayerState {
-    let new_p = p.hop(d);
-
-    PlayerState::from(d, p, new_p, b)
 }
 
 #[derive(Clone)]
@@ -282,11 +284,6 @@ fn solve_puzzle(input: &str) -> Result<Vec<Dir>> {
     let p1 = Player::parse(input1)?;
     let b2 = Board::parse(input2)?;
     let p2 = Player::parse(input2)?;
-
-    println!(
-        "A starting at ({}, {}), B starting at ({}, {})",
-        p1.x, p1.y, p2.x, p2.y
-    );
 
     solve(vec![Turn::new(&b1, p1, &b2, p2)]).ok_or(Error::NoSolution)
 }
